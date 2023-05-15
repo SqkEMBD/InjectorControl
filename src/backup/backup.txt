@@ -1,0 +1,382 @@
+#include <Arduino.h>
+#include <AccelStepper.h>
+
+/**
+ * @brief Private macros
+ *
+ */
+#define NOT_RUNNING 0
+#define RUNNING 1
+#define NOT_PRESSED 0
+#define PRESSED 1
+#define DBG(string) {Serial.println(string);}
+
+/**
+ * @brief Function Prototypes
+ *
+ */
+void checkButton(void);
+void isButtonClicked(uint8_t buttonPin);
+void nextLabState(void);
+void programLab1(void);
+void programLab2(void);
+void programLab3(void);
+void programLab4(void);
+void programLab5(void);
+
+/**
+ * @brief Global variables section.
+ */
+// ## GPIO Pins Configuration ##
+const int NEXT_STATE_PIN = PB2; // pin 2 go to next lab state.
+const int BUTTON_A = PD3;		// pin 3 button a, for lab trigger.
+const int BUTTON_B = PD4;		// pin 4 button b, for lab trigger.
+const int BUTTON_C = PD5;		// pin 5 button c, reserved.
+const int stepPin = 8;			// pin 8 Connect to Pulse pin of Stepper/DC Driver.
+const int pulsePin = stepPin;	// pin 8 Alias of stepPin.
+const int dirPin = 9;			// pin 9 Connect to Direction pin of Stepper/DC Driver.
+const int cwButton = BUTTON_A;	// Pin 2 Alias.
+const int ccwButton = BUTTON_B; // Pin 3 Alias.
+const int ledPin = LED_BUILTIN; // pin 13 Arduino Built-in LED.
+
+// ## Variables for Running Machine Lab State ##
+int labNumber = 0;				// lab running variable
+int switchEvent = 0;			// Event trigger
+bool buttonState = NOT_PRESSED; // button state initiilze.
+int labState = NOT_RUNNING;		// Lab State status
+
+// ## Variables for debouncing a button ##
+//  Variables will change for debounce button:
+int debouncebuttonState;   // the current reading from the input pin
+int lastButtonState = LOW; // the previous reading from the input pin
+
+// the following variables are unsigned longs because the time, measured in
+// milliseconds, will quickly become a bigger number than can be stored in an int.
+unsigned long lastDebounceTime = 0; // the last time the output pin was toggled
+unsigned long debounceDelay = 50;	// the debounce time; increase if the output flickers
+
+// ############## Stepping motor Using Accel Library #################
+// Define a stepper motor 1 for arduino
+// direction Digital 9 (CW), pulses Digital 8 (CLK)
+AccelStepper stepper(AccelStepper::DRIVER, stepPin, dirPin);
+// Stepper myStepper(2, );
+
+int maxDistance = 24000;
+int minDistance = 0;
+int zeroPos = 0;
+
+void setup()
+{
+	Serial.begin(9600);
+
+	// # initialize button switch:
+	pinMode(NEXT_STATE_PIN, INPUT_PULLUP);
+	pinMode(BUTTON_A, INPUT_PULLUP);
+	pinMode(BUTTON_B, INPUT_PULLUP);
+	pinMode(BUTTON_C, INPUT_PULLUP);
+
+	// # Initialize LED built-in:
+	pinMode(LED_BUILTIN, OUTPUT);
+
+	// # Initialize Potentiometer:
+	//  pinMode(POT_PIN, INPUT);
+
+	// # Initialize Stepper motor:
+	//  Change these to suit your stepper if you want
+	stepper.setMaxSpeed(1000.0); // 1100
+	stepper.setAcceleration(1100.0);
+
+	// Here you could put a homing sequence:
+	stepper.setCurrentPosition(0);
+
+	// motor 1.8 deg
+	// driver 1.8/2 deg
+	// travel length = 120 mm
+	// lead screw 2 mm/revolution
+	// start to end = 60 revs
+	// 1 rev = 360 deg
+	// 360/0.9 = 400 step/rev
+	// 400 steps/rev x 60 rev = 24,000 step
+	// stepper.moveTo(maxDistance); //
+
+	// Serial.println("Program Starting");
+}
+
+void loop()
+{
+	// button if switch is short or pressed it will return HIGH or '1', otherwise will be LOW or '0'
+
+	isButtonClicked(NEXT_STATE_PIN);
+
+	switch (labNumber)
+	{
+	case 0:
+		// do nothing.....
+		break;
+	case 1:
+		programLab1();
+		break;
+	case 2:
+		programLab2();
+		break;
+	case 3:
+		programLab3();
+		break;
+	case 4:
+		programLab4();
+		break;
+	case 5:
+		programLab5();
+		break;
+	default:
+		break;
+	}
+
+	if (switchEvent)
+	{
+		nextLabState();
+	}
+}
+
+// Microchip PIC Example Non-Debouncing
+void checkButton(void)
+{
+	if (buttonState == NOT_PRESSED)
+	{
+		if (digitalRead(NEXT_STATE_PIN) == LOW)
+		{
+			// # Clicked !!
+			Serial.println("buttonState = Pressed");
+			delay(100);
+			buttonState = PRESSED;
+			digitalWrite(LED_BUILTIN, HIGH);
+		}
+	}
+	else if (digitalRead(NEXT_STATE_PIN) == HIGH)
+	{
+		// # Released !
+		Serial.println("buttonState = Un-Pressed");
+		buttonState = NOT_PRESSED;
+		switchEvent = 1;
+		digitalWrite(LED_BUILTIN, LOW);
+	}
+}
+
+// Arduino Button Using Debouncing technique.
+void isButtonClicked(uint8_t buttonPin)
+{
+	// read the state of the switch into a local variable:
+	int reading = digitalRead(buttonPin);
+
+	// check to see if you just pressed the button
+	// (i.e. the input went from LOW to HIGH), and you've waited long enough
+	// since the last press to ignore any noise:
+
+	// If the switch changed, due to noise or pressing:
+	if (reading != lastButtonState)
+	{
+		// reset the debouncing timer
+		lastDebounceTime = millis();
+	}
+
+	if ((millis() - lastDebounceTime) > debounceDelay)
+	{
+		// whatever the reading is at, it's been there for longer than the debounce
+		// delay, so take it as the actual current state:
+
+		// if the button state has changed:
+		if (reading != debouncebuttonState)
+		{
+			debouncebuttonState = reading;
+
+			// only trigger lab state if the new button state is LOW (Button Active-Low)
+			if (debouncebuttonState == LOW) 
+			{
+				// Clicked !
+				// Serial.println("Clicked");
+				digitalWrite(ledPin, HIGH);
+				switchEvent = 1;
+			}
+		}
+	}
+
+	// set the LED:
+	digitalWrite(ledPin, LOW);
+
+	// save the reading. Next time through the loop, it'll be the lastButtonState:
+	lastButtonState = reading;
+}
+
+void nextLabState(void)
+{
+	switchEvent = 0;
+	labNumber++;
+
+	if (labNumber > 5)
+	{
+		labNumber = 1;
+	}
+}
+
+void programLab1(void)
+{
+	if (labState == NOT_RUNNING)
+	{
+		Serial.println("Lab 1: ");
+		// DBG("TEST DBG Message");
+		labState = RUNNING;
+		stepper.moveTo(maxDistance); //
+	}
+	if (labState == RUNNING)
+	{
+		if (digitalRead(BUTTON_A) == LOW)
+		{
+			// If at the end of travel go to the other end
+			if (stepper.distanceToGo() == 0)
+			{
+				// stepper.moveTo(-stepper.currentPosition());
+				stepper.moveTo(zeroPos); //
+				// Serial.println("Move Complete");
+			}
+		}
+		stepper.run();
+	}
+	if (switchEvent)
+	{
+		labState = NOT_RUNNING;
+	}
+}
+
+void programLab2(void)
+{
+	int time = 5000;
+
+	if (labState == NOT_RUNNING)
+	{
+		Serial.println("Lab 2: ");
+		labState = RUNNING;
+	}
+	if (labState == RUNNING)
+	{
+		if (digitalRead(BUTTON_A) == LOW)
+		{
+			// # Enable Direction CW
+			digitalWrite(dirPin, HIGH);
+			// # Generation Pulse
+			digitalWrite(stepPin, HIGH);
+			delayMicroseconds(500);
+			digitalWrite(stepPin, LOW);
+		}
+		else if (digitalRead(BUTTON_B) == LOW)
+		{
+			for(int i = 0; i < time; i++)
+			{
+				// # Enable Direction CCW
+				digitalWrite(dirPin, LOW);
+				// # Generation Pulse
+				digitalWrite(stepPin, HIGH);
+				delayMicroseconds(500);
+				digitalWrite(stepPin, LOW);
+				delayMicroseconds(500);
+				// delay(100);
+			}
+		}
+		// # Delay for interval pulse signal.
+		delayMicroseconds(100);
+	}
+	if (switchEvent)
+	{
+		labState = NOT_RUNNING;
+	}
+}
+
+void programLab3(void)
+{
+	int state = 0;
+
+	if (labState == NOT_RUNNING)
+	{
+		Serial.println("Lab 3: ");
+		labState = RUNNING;
+	}
+	if (labState == RUNNING)
+	{
+		if (state == NOT_PRESSED)
+		{
+			if (digitalRead(BUTTON_C) == LOW)
+			{
+				Serial.println("Set Current position = 0");
+				stepper.setCurrentPosition(0);
+				delay(100);
+				state = 1;
+			}
+			else if (digitalRead(BUTTON_C) == HIGH)
+			{
+				state = 0;
+			}
+		}
+		if (digitalRead(BUTTON_A) == LOW)
+		{
+			Serial.println("Start Auto Pattern");
+			stepper.runToNewPosition(940);
+			delay(1500);
+			stepper.runToNewPosition(1880);
+			delay(1500);
+			stepper.runToNewPosition(2820);
+			delay(1500);
+			stepper.runToNewPosition(3760);
+			delay(1500);
+			stepper.runToNewPosition(4700);
+			delay(1500);
+			stepper.runToNewPosition(5640);
+			delay(1500);
+			stepper.runToNewPosition(6580);
+			delay(1500);
+			stepper.runToNewPosition(7520);
+			delay(1500);
+			stepper.runToNewPosition(8460);
+			delay(1500);
+			stepper.runToNewPosition(9400);
+			delay(1500);
+			Serial.println("Done");
+		}
+	}
+	// Auto Injection
+
+	if (switchEvent)
+	{
+		labState = NOT_RUNNING;
+	}
+}
+
+void programLab4(void)
+{
+	if (labState == NOT_RUNNING)
+	{
+		Serial.println("Lab 4: ");
+		labState = RUNNING;
+	}
+	if (labState == RUNNING)
+	{
+	}
+	if (switchEvent)
+	{
+		labState = NOT_RUNNING;
+	}
+}
+
+void programLab5(void)
+{
+	if (labState == NOT_RUNNING)
+	{
+		Serial.println("Lab 5: ");
+		labState = RUNNING;
+	}
+	if (labState == RUNNING)
+	{
+	}
+	if (switchEvent)
+	{
+		labState = NOT_RUNNING;
+	}
+}
